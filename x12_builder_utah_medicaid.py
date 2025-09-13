@@ -102,17 +102,17 @@ class UtahMedicaidX12_270Builder:
         # HL - Hierarchical Level (Provider)
         self.segments.append("HL*2*1*21*1~")
         
-        # NM1 - Provider Name (MINIMAL FORMAT - Only entity type, format, and name)
-        # NO position 7 (suffix), 8 (ID qualifier), or 9 (NPI)
-        self.segments.append(f"NM1*1P*1*{provider_last_name}*{provider_first_name}~")
+        # NM1 - Provider Name (using XX qualifier with NPI)
+        provider_npi = self.config.get('provider_npi', '1275348807')  # Default to known NPI
+        self.segments.append(f"NM1*1P*1*{provider_last_name}*{provider_first_name}****XX*{provider_npi}~")
         
         # HL - Hierarchical Level (Subscriber)
         self.segments.append("HL*3*2*22*0~")
         
-        # TRN - Trace Number (MINIMAL - Only type and number)
-        # NO position 3 (originator ID) or 4 (reference ID)
+        # TRN - Trace Number with provider NPI as originator (10 chars max for TRN03)
         trace_number = f"{control_number[:8]}{control_number[-6:]}"
-        self.segments.append(f"TRN*1*{trace_number}~")
+        originator = self.config.get('provider_npi', '1275348807')[:10]
+        self.segments.append(f"TRN*1*{trace_number}*{originator}~")
         
         # NM1 - Subscriber Name
         if member_id:
@@ -133,8 +133,8 @@ class UtahMedicaidX12_270Builder:
         # EQ - Eligibility/Benefit Inquiry
         self.segments.append("EQ*30~")
         
-        # SE - Transaction Set Trailer (12 segments from ST to SE)
-        self.segments.append("SE*12*0001~")
+        # SE - Transaction Set Trailer (13 segments from ST to SE)
+        self.segments.append("SE*13*0001~")
         
         # GE - Functional Group Trailer
         self.segments.append(f"GE*1*{control_number}~")

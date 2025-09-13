@@ -141,20 +141,19 @@ class X12_270Builder:
         # HL - Hierarchical Level (Information Receiver - Provider)
         self.add_segment("HL*2*1*21*1~")
         
-        # NM1 - Information Receiver Name (Provider) - exact format from accepted example
+        # NM1 - Information Receiver Name (Provider) - using XX qualifier with NPI
         self.add_segment(
-            f"NM1*1P*1*MONTOYA*JEREMY***MD*34*{self.config['provider_npi']}~"
+            f"NM1*1P*1*{self.config.get('provider_last', 'PROVIDER')}*{self.config.get('provider_first', 'TEST')}****XX*{self.config['provider_npi']}~"
         )
         
         # HL - Hierarchical Level (Subscriber/Patient)
         self.add_segment("HL*3*2*22*0~")
         
-        # TRN - Trace Numbers - exact format from accepted example 
+        # TRN - Trace Number with sender ID as originator (10 chars max for TRN03)
+        # Using first 10 chars of provider NPI as originator reference
+        originator = self.config.get('provider_npi', '1275348807')[:10]
         self.add_segment(
-            f"TRN*1*{tracking_ref1}*{self.config['provider_npi']}*ELIGIBILITY~"
-        )
-        self.add_segment(
-            f"TRN*1*{tracking_ref2}*{self.config['trading_partner']}*REALTIME~"
+            f"TRN*1*{tracking_ref1}*{originator}~"
         )
         
         # NM1 - Subscriber Name
@@ -179,9 +178,9 @@ class X12_270Builder:
         self.add_segment("EQ*30~")
         
         # SE - Transaction Set Trailer
-        # Count segments from ST through SE inclusive (should be 14 based on UHIN guide)
-        # ST, BHT, HL, NM1, HL, NM1, HL, TRN, TRN, NM1, DMG, DTP, EQ, SE = 14
-        self.add_segment(f"SE*14*0001~")
+        # Count segments from ST through SE inclusive
+        # ST, BHT, HL, NM1, HL, NM1, HL, TRN, NM1, DMG, DTP, EQ, SE = 13
+        self.add_segment(f"SE*13*0001~")
         
         # GE - Functional Group Trailer
         self.add_segment(f"GE*1*{control_number}~")

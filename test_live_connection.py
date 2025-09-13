@@ -50,7 +50,9 @@ def test_production_connection():
         'trading_partner': tpn,
         'receiver_id': 'HT000004-001',  # Production Utah Medicaid
         'provider_npi': os.getenv('PROVIDER_NPI', '1275348807'),
-        'provider_name': os.getenv('PROVIDER_NAME', 'TEST_PROVIDER')
+        'provider_name': os.getenv('PROVIDER_NAME', 'TEST_PROVIDER'),
+        'provider_first': os.getenv('PROVIDER_FIRST_NAME', 'Rufus'),
+        'provider_last': os.getenv('PROVIDER_LAST_NAME', 'Sweeney')
     }
     
     checker = UHINEligibilityChecker(config)
@@ -112,7 +114,9 @@ def test_uat_connection():
         'trading_partner': os.getenv('UHIN_TRADING_PARTNER', 'HT009582-001'),
         'receiver_id': 'HT000004-003',  # Test Utah Medicaid
         'provider_npi': os.getenv('PROVIDER_NPI', '1275348807'),
-        'provider_name': 'TEST_PROVIDER'
+        'provider_name': 'TEST_PROVIDER',
+        'provider_first': os.getenv('PROVIDER_FIRST_NAME', 'Rufus'),
+        'provider_last': os.getenv('PROVIDER_LAST_NAME', 'Sweeney')
     }
     
     print("\n📋 UAT Configuration:")
