@@ -53,3 +53,12 @@ coverage.xml
 venv/
 ENV/
 env/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# History/cache directories
+.history/
+.cache/

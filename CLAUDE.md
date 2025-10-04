@@ -1,141 +1,208 @@
-# UHIN Eligibility Checker - CRITICAL INSTRUCTIONS FOR CLAUDE
+# UHIN 270/271 Eligibility Checking - Complete Working System
 
-## =� CRITICAL WARNING: THIS CODE IS WORKING! =�
+## 🚀 Quick Start
 
-**DO NOT MODIFY THE FOLLOWING FILES UNLESS EXPLICITLY ASKED:**
-- `x12_builder.py` - WORKING X12 270 builder (DO NOT TOUCH)
-- `x12_builder_utah_medicaid.py` - WORKING Utah-specific builder (DO NOT TOUCH)
-- `soap_client.py` - WORKING SOAP client for UHIN (DO NOT TOUCH)
-- `main.py` - WORKING eligibility checker (DO NOT TOUCH)
-
-These files successfully communicate with Utah Medicaid FFS via UHIN and receive valid 271 eligibility responses. They were fixed on 2025-09-12 after extensive debugging of 999 rejection errors.
-
-## What This System Does
-
-This is a **WORKING** Utah Medicaid eligibility checker that:
-1. Takes patient information (name, DOB, Medicaid ID)
-2. Builds properly formatted X12 270 eligibility inquiry messages
-3. Sends them via SOAP to UHIN's CORE clearinghouse
-4. Receives and parses X12 271 eligibility responses
-5. Determines if patients qualify for Contingency Management programs (Traditional FFS only)
-
-## The Critical X12 Format (DO NOT CHANGE)
-
-The X12 270 format that works with Utah Medicaid has these EXACT requirements:
-
-```
-NM1*1P*1*{PROVIDER_LAST}*{PROVIDER_FIRST}****XX*{PROVIDER_NPI}~
-TRN*1*{unique_trace}*{PROVIDER_NPI}~
-```
-
-**Critical elements that MUST NOT change:**
-- Provider NM1 uses `XX` qualifier (NOT `MD*34`)
-- Only ONE TRN segment (not two)
-- TRN03 MUST be exactly 10 characters (provider NPI works)
-- SE segment count MUST be 13
-
-## Environment Configuration
-
-The system uses credentials from `.env.local`:
-```
-UHIN_USERNAME=MoonlitProd
-UHIN_PASSWORD=3shz8trtYF2M06!N
-UHIN_ENDPOINT=https://ws.uhin.org/webservices/core/soaptype4.asmx
-UHIN_TRADING_PARTNER=HT009582-001
-UHIN_RECEIVER_ID=HT000004-001
-PROVIDER_NPI=1275348807
-PROVIDER_FIRST_NAME=Rufus
-PROVIDER_LAST_NAME=Sweeney
-```
-
-## How to Test (Without Breaking)
-
-To verify the system is still working:
 ```bash
-python test_live_connection.py
-# Choose option 1 for Production test
+# Terminal 1: Backend (port 5001)
+cd /Users/macsweeney/uhin-eligibility-checker
+python backend/app.py
+
+# Terminal 2: Frontend (port 5174)
+cd /Users/macsweeney/uhin-eligibility-checker/frontend
+npm run dev
 ```
 
-Expected result: You should receive a 271 response (not a 999 rejection).
+Access at: http://localhost:5174
 
-## Common Tasks
+## ✅ Current System Status (2025-09-30)
 
-### Check eligibility for a patient:
-```python
-from main import UHINEligibilityChecker
+### Working Components
+- **Core X12 270/271 UHIN Integration** - Fully functional with Utah Medicaid
+- **Flask Backend API** - Running on port 5001 with eligibility & enrollment endpoints
+- **React Frontend** - Mobile-first interface with 5-step enrollment wizard
+- **SQLite Database** - Stores eligibility checks and enrollment records
+- **TAM Detection** - Correctly identifies Targeted Adult Medicaid vs managed care
 
-config = {
-    'username': 'MoonlitProd',
-    'password': '...',
-    'endpoint': 'https://ws.uhin.org/webservices/core/soaptype4.asmx',
-    'trading_partner': 'HT009582-001',
-    'receiver_id': 'HT000004-001',
-    'provider_npi': '1275348807',
-    'provider_first': 'Rufus',
-    'provider_last': 'Sweeney'
+### Critical Technical Fixes Applied
+1. **X12 Gender**: Default 'M' (Utah rejects 'U') - Error 1068 fixed
+2. **Port Conflict**: Moved to 5001 (macOS AirPlay uses 5000)
+3. **TAM Recognition**: "TRADITIONAL ADULT" correctly identified as TAM
+4. **Transportation Filter**: Modivcare excluded as non-payer
+5. **CORS**: Configured for frontend at localhost:5174
+
+### Test Results
+- **Jeremy Montoya (1984-07-17)**: ✅ FFS qualified
+- **Patient KN**: ✅ Fixed gender='U' issue
+- **Patient EM**: ✅ Confirmed TAM patient
+
+## ⚠️ PROTECTED FILES - DO NOT MODIFY
+
+These files contain the exact working X12 format after extensive debugging:
+- `x12_builder.py` - X12 270 builder with exact Utah Medicaid format
+- `soap_client.py` - SOAP client for UHIN connection
+- `main.py` - Main eligibility checker orchestration
+- `parser.py` - X12 271 response parser with TAM detection
+- `.env.local` - UHIN credentials and configuration
+
+See `X12_FIX_JOURNEY.md` and `PROTECTED_FILES.md` for critical context.
+
+## 📋 System Architecture
+
+### Backend Structure
+```
+backend/
+├── app.py           # Flask API (port 5001)
+├── database.py      # SQLite with eligibility_checks & cm_enrollments
+└── requirements.txt # Dependencies
+```
+
+### Frontend Structure
+```
+frontend/
+├── src/
+│   ├── components/
+│   │   ├── EligibilityCheck.jsx  # Name + DOB input form
+│   │   ├── ResultScreen.jsx      # Qualified/not qualified display
+│   │   ├── EnrollmentFlow.jsx    # 5-step enrollment wizard
+│   │   └── RecentChecks.jsx      # History display
+│   └── App.jsx                    # Main router
+└── package.json
+```
+
+## 🔌 API Reference
+
+### POST /api/eligibility/check
+Check if patient qualifies for contingency management.
+
+**Request:**
+```json
+{
+  "first_name": "Jeremy",
+  "last_name": "Montoya",
+  "date_of_birth": "1984-07-17"
 }
-
-checker = UHINEligibilityChecker(config)
-result = checker.check_eligibility(
-    first_name='Jeremy',
-    last_name='Montoya',
-    date_of_birth='1984-07-17',
-    gender='M',
-    member_id='0900412827'
-)
 ```
 
-### Understanding the Response:
-- `qualified_for_cm: True` = Traditional FFS Medicaid (eligible for CM)
-- `qualified_for_cm: False` = Managed Care or other (not eligible)
-- `ffs_status` = "TRADITIONAL_FFS" or "MANAGED_CARE"
+**Response (Qualified):**
+```json
+{
+  "success": true,
+  "qualified": true,
+  "patient_info": {
+    "first_name": "Jeremy",
+    "last_name": "Montoya",
+    "medicaid_id": "0900412827"
+  },
+  "checked_at": "2025-09-30T10:30:00Z"
+}
+```
 
-## What NOT to Do
+### POST /api/enrollment/create
+Create new CM program enrollment.
 
-1. **DO NOT** change the X12 segment format
-2. **DO NOT** add or remove TRN segments
-3. **DO NOT** change provider NM1 qualifiers
-4. **DO NOT** modify TRN03 length or content
-5. **DO NOT** update SE segment counts without recounting
-6. **DO NOT** assume Office Ally format works here (it doesn't)
+**Request:**
+```json
+{
+  "patient_id": "0900412827",
+  "first_name": "Jeremy",
+  "last_name": "Montoya",
+  "date_of_birth": "1984-07-17",
+  "phone": "8015551234",
+  "enrollment_data": {...}
+}
+```
 
-## If You Must Make Changes
+## 🏗️ Technical Implementation Details
 
-If changes are absolutely necessary:
-1. Read `X12_FIX_JOURNEY.md` first to understand the history
-2. Make a backup of working files
-3. Test with `test_live_connection.py` after EVERY change
-4. Watch for 999 rejections - they mean format errors
-5. Check IK3/IK4 segments in 999 responses for specific error locations
+### UHIN Connection
+- **Endpoint**: https://ws.uhin.org/webservices/core/soaptype4.asmx
+- **Trading Partner**: HT009582-001
+- **Receiver**: HT000004-001 (Utah Medicaid)
+- **Transaction**: RealTime CORE 270/271
+- **Security**: WS-Security UsernameToken
 
-## Success Indicators
+### X12 270 Format (Critical - Do Not Change)
+```
+ISA*00*          *00*          *ZZ*HT009582-001   *ZZ*HT000004-001...
+GS*HS*HT009582-001*HT000004-001...
+ST*270*0001*005010X279A1~
+BHT*0022*13...
+HL*1**20*1~
+NM1*PR*2*UTAH MEDICAID FFS*****46*HT000004-001~
+HL*2*1*21*1~
+NM1*1P*1*[PROVIDER_LAST]*[PROVIDER_FIRST]****XX*[NPI]~
+HL*3*2*22*0~
+TRN*1*[TRACE_NUM]*[NPI]~
+NM1*IL*1*[PATIENT_LAST]*[PATIENT_FIRST]****MI*[MEDICAID_ID]~
+DMG*D8*[DOB]*[M/F]~
+DTP*291*RD8*[DATE_RANGE]~
+EQ*30~
+SE*13*0001~
+GE*1...
+IEA*1...
+```
 
- You're getting 271 responses (not 999)
- The response contains eligibility benefit information
- The system correctly identifies FFS vs Managed Care
- No SOAP faults or HTTP 500 errors
+**Key Requirements:**
+- Provider NM1 uses `XX` qualifier (not `MD*34`)
+- ONE TRN segment per subscriber loop
+- TRN03 must be exactly 10 characters (use NPI)
+- Segment count: 13 from ST to SE
+- Gender: M or F only (no U)
 
-## Project Context
+### FFS Eligibility Detection Logic
+```python
+# Parser identifies Traditional FFS by checking:
+- Plan contains "Traditional Medicaid" or "Targeted Adult Medicaid"
+- No MCO assignment (Molina, SelectHealth, Anthem, Healthy U)
+- Active coverage (EB codes 1-5)
+- Not transportation vendor (Modivcare, Logisticare)
+```
 
-This eligibility checker is part of a larger Contingency Management billing system for Utah Medicaid. It needs to:
-- Verify patients have Traditional FFS Medicaid (not Managed Care)
-- Support real-time eligibility checks during patient intake
-- Feed eligibility data to the billing system for H0038 claims
+## 🔮 Next Development Steps
 
-## Files You CAN Modify
+1. **Notifyre Integration** - SMS enrollment links
+2. **PDF Generation** - Enrollment documents
+3. **Authentication** - CPSS user login system
+4. **Production Deploy** - Cloud hosting
+5. **Analytics** - Enrollment metrics dashboard
 
-- Test files (`test_*.py`) - for testing new scenarios
-- Documentation files (`*.md`) - except this one
-- Output files in `output/` directory - these are temporary
+## 🛠️ Troubleshooting
 
-## Contact for Issues
+### Eligibility Checker Issues
+1. Check `.env.local` credentials
+2. Run `python test_live_connection.py` to verify UHIN connection
+3. Review `X12_FIX_JOURNEY.md` for format requirements
+4. Check `output/` directory for saved X12 messages
 
-If the X12 format stops working:
-1. Check if Utah Medicaid changed their requirements
-2. Review the 999 rejection details (IK3/IK4 segments)
-3. Refer to `X12_FIX_JOURNEY.md` for debugging approach
-4. Test changes incrementally with production endpoint
+### Common Errors
+- **AAA*Y**42*Y~** : Invalid/missing subscriber ID
+- **AAA*Y**41*Y~** : Invalid/missing date of birth
+- **AAA*Y**73*N~** : Invalid patient gender (use M/F not U)
+- **Port 5000 in use**: macOS AirPlay conflict, use 5001
 
----
+### Development Notes
+- **Credentials**: Stored in `.env.local` (never commit)
+- **Testing**: Use Jeremy Montoya (DOB: 1984-07-17, ID: 0900412827)
+- **Response Time**: Expect 1-2 seconds from UHIN
+- **Security**: Implement PII redaction in logs
 
-**REMEMBER: This code is WORKING as of 2025-09-12. Don't fix what isn't broken!**
+## 📚 Additional Documentation
+
+- `X12_FIX_JOURNEY.md` - Detailed debugging history
+- `PROTECTED_FILES.md` - Files that must not be modified
+- `backend/README.md` - Backend-specific details
+- `frontend/README.md` - Frontend-specific details
+
+## ⚡ Key Business Rules
+
+### Qualifying for CM Program
+- Must have Traditional FFS Medicaid (TAM or Traditional Adult)
+- Cannot be in managed care (temporary 3-week FFS doesn't count)
+- Stimulant use disorder only (meth/cocaine)
+- Text-only outreach via Notifyre
+
+### Enrollment Requirements
+- Valid phone for SMS enrollment link
+- Informed consent required
+- CPSS referral tracking (e.g., Zack from USARA)
+- Same-day enrollment in acute care settings

@@ -216,29 +216,38 @@ class X12_271Parser:
         """Parse NM1 segment for name information"""
         parts = segment.split('*')
         result['raw_segments']['NM1'].append(segment)
-        
+
         if len(parts) < 3:
             return
-        
+
         entity_type = parts[1]
-        
+
         # PR = Payer
         if entity_type == 'PR':
+            payer_name = parts[3] if len(parts) > 3 else ''
+
+            # Skip transportation vendors - they're not the primary payer
+            if any(transport in payer_name.upper() for transport in ['MODIVCARE', 'LOGISTICARE', 'VEYO', 'TRANSPORTATION']):
+                # Store as transportation vendor but don't treat as primary payer
+                result['transportation_vendor'] = payer_name
+                return
+
+            # This is the primary payer
             result['payer_info'] = {
-                'name': parts[3] if len(parts) > 3 else '',
+                'name': payer_name,
                 'id_qualifier': parts[8] if len(parts) > 8 else '',
                 'id': parts[9].rstrip('~') if len(parts) > 9 else ''
             }
-            
+
             # Check for Utah Medicaid
-            payer_name = parts[3].upper() if len(parts) > 3 else ''
-            if 'MEDICAID' in payer_name or 'UTAH' in payer_name:
+            payer_name_upper = payer_name.upper()
+            if 'MEDICAID' in payer_name_upper or 'UTAH' in payer_name_upper:
                 result['payer_info']['is_utah_medicaid'] = True
-                
+
                 # Check for specific programs
-                if 'TARGETED ADULT' in parts[3].upper():
+                if 'TARGETED ADULT' in payer_name_upper:
                     result['plan_info']['program'] = 'Targeted Adult Medicaid'
-                elif 'TRADITIONAL' in parts[3].upper():
+                elif 'TRADITIONAL' in payer_name_upper:
                     result['plan_info']['program'] = 'Traditional Medicaid'
         
         # IL = Insured/Subscriber
@@ -287,23 +296,31 @@ class X12_271Parser:
         
         # Check for managed care indicators
         if insurance_type:
-            # HM = Health Maintenance Organization (HMO)
+            # HM = Health Maintenance Organization (HMO) - but check if it's just transportation
             if 'HM' in insurance_type.upper():
-                result['managed_care_detected'] = True
-                result['plan_info']['type'] = 'HMO'
+                # Check if this is just transportation, not primary insurance
+                if 'TRANSPORTATION' not in plan_description.upper():
+                    result['managed_care_detected'] = True
+                    result['plan_info']['type'] = 'HMO'
             # MC = Medicaid
             elif 'MC' in insurance_type.upper():
                 result['plan_info']['type'] = 'Medicaid'
-                
+
                 # Check plan description for FFS indicators
                 if plan_description:
                     plan_upper = plan_description.upper()
-                    if 'TARGETED ADULT' in plan_upper:
-                        result['plan_info']['program'] = 'Targeted Adult Medicaid'
-                        result['ffs_status'] = 'TRADITIONAL_FFS'
-                    elif 'TRADITIONAL' in plan_upper:
-                        result['plan_info']['program'] = 'Traditional Medicaid'
-                        result['ffs_status'] = 'TRADITIONAL_FFS'
+                    # CRITICAL: ONLY "TRADITIONAL ADULT" or "TARGETED ADULT" qualify for CM
+                    # "TRADITIONAL ADULT" is how Utah labels TAM in their system
+                    if 'TRADITIONAL ADULT' in plan_upper or 'TARGETED ADULT' in plan_upper:
+                        result['plan_info']['program'] = 'Targeted Adult Medicaid (TAM)'
+                        result['ffs_status'] = 'TAM_FFS'  # Specifically TAM, not just any FFS
+                        # Override any managed care detection - TAM is always FFS
+                        result['managed_care_detected'] = False
+                    # Traditional Medicaid WITHOUT "ADULT" - DO NOT QUALIFY
+                    # This could be temporary pre-ACO assignment
+                    elif 'TRADITIONAL' in plan_upper and 'ADULT' not in plan_upper:
+                        result['plan_info']['program'] = 'Traditional Medicaid (Non-TAM)'
+                        result['ffs_status'] = 'TRADITIONAL_NON_TAM'  # Not qualified for CM
                     elif any(mc in plan_upper for mc in ['MOLINA', 'SELECTHEALTH', 'ANTHEM', 'HEALTHY U']):
                         result['managed_care_detected'] = True
                         result['ffs_status'] = 'MANAGED_CARE'
@@ -389,32 +406,51 @@ class X12_271Parser:
     
     def _determine_ffs_status(self, result: Dict):
         """Determine if the patient qualifies for FFS based on all parsed data"""
-        
+
         # Check if Utah Medicaid is the payer
         is_utah_medicaid = result.get('payer_info', {}).get('is_utah_medicaid', False)
-        
-        # Check for managed care indicators
+
+        # Check for managed care indicators (already filtered for non-transportation)
         has_managed_care = result.get('managed_care_detected', False)
-        
+
         # Check program type
         program = result.get('plan_info', {}).get('program', '')
-        
-        # Check for active eligibility
+
+        # Check for active eligibility - ignore transportation entries
         has_active_coverage = any(
-            detail.get('code') in ['1', '2', '3', '4', '5'] or 
-            'Active' in detail.get('status', '')
+            (detail.get('code') in ['1', '2', '3', '4', '5'] or
+            'Active' in detail.get('status', '')) and
+            'TRANSPORTATION' not in detail.get('plan_description', '').upper()
             for detail in result.get('eligibility_details', [])
         )
-        
-        # Determine final FFS status
+
+        # Check if we found TRADITIONAL ADULT in any EB segment - this is TAM
+        has_traditional_adult = any(
+            'TRADITIONAL ADULT' in detail.get('plan_description', '').upper()
+            for detail in result.get('eligibility_details', [])
+        )
+
+        # Determine final FFS status - STRICT TAM-ONLY QUALIFICATION
         if not has_active_coverage:
             result['ffs_status'] = 'NOT_ELIGIBLE'
             result['ffs_qualification'] = 'NOT_QUALIFIED'
+        # CRITICAL: ONLY qualify if we found "TRADITIONAL ADULT" or "TARGETED ADULT"
+        elif has_traditional_adult:
+            result['ffs_status'] = 'TAM_FFS'
+            result['ffs_qualification'] = 'QUALIFIED'
+            result['plan_info']['program'] = 'Targeted Adult Medicaid (TAM)'
+            result['managed_care_detected'] = False  # Override any managed care detection
         elif has_managed_care:
             result['ffs_status'] = 'MANAGED_CARE'
             result['ffs_qualification'] = 'ENROLLED_NOT_QUALIFIED'
-        elif is_utah_medicaid and program in ['Targeted Adult Medicaid', 'Traditional Medicaid']:
-            result['ffs_status'] = 'TRADITIONAL_FFS'
+        # Check if it's Traditional Medicaid (but NOT TAM) - DO NOT QUALIFY
+        elif is_utah_medicaid and 'Traditional Medicaid' in program and 'TAM' not in program:
+            result['ffs_status'] = 'TRADITIONAL_NON_TAM'
+            result['ffs_qualification'] = 'NOT_QUALIFIED_TEMPORARY_FFS'
+            result['warnings'].append('Traditional Medicaid detected but not TAM - may be temporary pre-ACO assignment')
+        # Only qualify if explicitly TAM
+        elif is_utah_medicaid and 'TAM' in program:
+            result['ffs_status'] = 'TAM_FFS'
             result['ffs_qualification'] = 'QUALIFIED'
         elif is_utah_medicaid:
             # Utah Medicaid but program not specified - needs review
@@ -429,24 +465,30 @@ class X12_271Parser:
     
     def _generate_summary(self, result: Dict) -> str:
         """Generate a human-readable summary of eligibility status"""
-        
+
         ffs_status = result.get('ffs_status', 'UNKNOWN')
         qualification = result.get('ffs_qualification', 'UNKNOWN')
         patient = result.get('patient_info', {})
         plan = result.get('plan_info', {})
-        
+
         name = f"{patient.get('first_name', '')} {patient.get('last_name', '')}".strip()
-        
+
         if qualification == 'QUALIFIED':
-            program = plan.get('program', 'Utah Medicaid FFS')
-            return f"{name} is enrolled in {program} (Traditional FFS) - QUALIFIES for CM Program"
+            # Only TAM qualifies
+            return f"{name} is enrolled in Targeted Adult Medicaid (TAM) - QUALIFIES for CM Program"
+        elif qualification == 'NOT_QUALIFIED_TEMPORARY_FFS':
+            return f"{name} has Traditional Medicaid (may be temporary pre-ACO) - DOES NOT QUALIFY (not TAM)"
         elif qualification == 'ENROLLED_NOT_QUALIFIED':
             return f"{name} is enrolled in Managed Care Medicaid - DOES NOT QUALIFY for CM Program"
+        elif qualification == 'NEEDS_REVIEW':
+            return f"{name} has Utah Medicaid but program type unclear - MANUAL REVIEW REQUIRED"
         elif qualification == 'NOT_QUALIFIED':
             if ffs_status == 'NOT_ELIGIBLE':
                 return f"{name} is not currently eligible for Medicaid"
+            elif ffs_status == 'TRADITIONAL_NON_TAM':
+                return f"{name} has Traditional Medicaid but not TAM - DOES NOT QUALIFY"
             else:
-                return f"{name} does not have Utah Medicaid FFS coverage"
+                return f"{name} does not have Targeted Adult Medicaid (TAM) coverage"
         elif qualification == 'NEEDS_REVIEW':
             return f"{name} has Utah Medicaid but program type needs manual review"
         else:

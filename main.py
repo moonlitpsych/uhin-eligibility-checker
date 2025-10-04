@@ -180,6 +180,7 @@ class UHINEligibilityChecker:
             result['ffs_status'] = parsed_result.get('ffs_status', 'UNKNOWN')
             result['qualified_for_cm'] = parsed_result.get('ffs_qualification') == 'QUALIFIED'
             result['eligibility_details'] = parsed_result
+            result['raw_271_response'] = x12_271  # Add raw response for detailed parsing
             
             # Add any parsing errors
             if parsed_result.get('errors'):
